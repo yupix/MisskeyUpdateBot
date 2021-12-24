@@ -2,12 +2,13 @@ import os
 import re
 import asyncio
 import aiohttp
+import time
 
 from mi.ext import commands
 from mi import Router
 from mi.note import Note, Reaction
 
-from mub.exception import InstallDepenciesError, MisskeyBuildError
+from mub.exception import CheckoutFailedError, InstallDepenciesError, MisskeyBuildError
 
 
 class InstanceManager:
@@ -99,6 +100,7 @@ class InstanceManager:
         return proc.returncode
 
     async def upgrade(self):
+        start_time = time.time()
         checkout_status = await self.checkout()
         if checkout_status:
             exit_code = await self.install_dependencies()
@@ -106,8 +108,12 @@ class InstanceManager:
                 raise InstallDepenciesError('依存関係のインストールに失敗しました')
             exit_code = await self.build()
             if exit_code != 0:
-                raise MisskeyBuildError()
-            return await self.migrate()
+                raise MisskeyBuildError('ビルドに失敗しました')
+            migrate_status = await self.migrate()
+        else:
+            raise CheckoutFailedError('チェックアウトに失敗しました')
+        end_time = time.time()
+        return migrate_status, end_time - start_time
             
         
 
@@ -126,12 +132,15 @@ class MUB(commands.Bot):
             if reaction.note.id == self.instance_manager.note_id and reaction.reaction == '👍':
                 await self.post_note('アップグレードを開始します')
                 try:
-                    exit_code = await self.instance_manager.upgrade()
+                    exit_code, end_time = await self.instance_manager.upgrade()
                     if exit_code == 0:
-                        await self.post_note('更新に成功しました')
+                        await self.post_note(f'更新に成功しました\n経過時間: {end_time}')
                     else:
-                        await self.post_note('更新に失敗しました\n原因: ビルドに失敗')
-                        
+                        await self.post_note('更新に失敗しました\n原因: マイグレートに失敗')
+                except CheckoutFailedError:
+                    await self.post_note('更新に失敗しました\n原因: ブランチのチェックアウトに失敗')
+                except MisskeyBuildError:
+                    await self.post_note('更新に失敗しました\n原因: ビルドに失敗')
                 except InstallDepenciesError:
                     await self.post_note('更新に失敗しました\n原因: 依存関係のインストールに失敗')
                 
