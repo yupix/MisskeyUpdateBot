@@ -8,3 +8,6 @@ class InstallDepenciesError(Exception):
 
 class MisskeyBuildError(Exception):
     pass
+
+class CheckoutFailedError(Exception):
+    pass
